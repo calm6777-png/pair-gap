@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1a1d21"/>
+  <path d="M96 332 L176 268 L248 300 L328 204 L416 176" fill="none" stroke="#eb6834" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M96 392 L176 360 L248 380 L328 320 L416 330" fill="none" stroke="#3987e5" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="416" cy="176" r="22" fill="#eb6834"/>
+  <text x="96" y="160" font-family="system-ui, sans-serif" font-size="96" font-weight="700" fill="#eff1f4">갭</text>
+</svg>

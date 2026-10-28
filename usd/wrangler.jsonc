@@ -8,5 +8,8 @@
   // 저장소 전체(맨 앞 갭 차트 + usd/ 달러선물)를 GitHub Pages와 같은 구조로 함께 내보냅니다.
   // 소스·설정 파일은 ../.assetsignore 에서 뺍니다. 파일이 없는 경로(/api/*)만 Worker가 처리합니다.
   "assets": { "directory": ".." },
+  // 갭 신호 알림: 구독 기기 목록(D1)과 5분마다 확인하는 타이머
+  "d1_databases": [{ "binding": "DB", "database_name": "pair-gap-alerts", "database_id": "22027196-e4d3-4f1d-acd2-abbc18bf45fa" }],
+  "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true }
 }

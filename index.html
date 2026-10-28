@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>삼성·하이닉스 실시간 갭</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <script>try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="tabs.css">
 <script src="tabs.js" defer></script>
@@ -71,6 +73,12 @@ h2{font-size:16px;font-weight:700;margin:0}
 .tick .px{font-family:var(--mono);font-size:18px}
 .tick .sm{font-size:12px;color:var(--muted)}
 .sw{width:12px;height:3px;border-radius:2px;display:inline-block}
+/* 신호 알림 */
+.alarm{display:flex;flex-direction:column;gap:8px;padding:12px 16px}
+.arow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.atitle{font-weight:700}
+.asub{font-size:13px;color:var(--fg2)}
+.arow .btn{flex:none}
 /* chart */
 .chead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -167,6 +175,15 @@ th{color:var(--muted);font-weight:500} td:first-child,th:first-child{text-align:
     </div>
   </section>
 
+  <section class="panel alarm" aria-label="신호 알림">
+    <div class="arow">
+      <div><div class="atitle">1시간봉 신호 알림</div><div class="asub" id="aState">확인 중…</div></div>
+      <button type="button" class="btn primary" id="aToggle">알림 켜기</button>
+    </div>
+    <p class="hint" id="aHint" hidden></p>
+    <button type="button" class="btn" id="aTest" style="align-self:flex-start" hidden>테스트 알림 보내기</button>
+  </section>
+
   <section class="panel" aria-label="갭 흐름과 뉴스">
     <div class="chead">
       <h2>갭 흐름과 뉴스</h2>
@@ -250,7 +267,9 @@ const kst=(t,withDate=true)=>new Date(t).toLocaleString('ko-KR',{timeZone:'Asia/
 const pct=(v,d=1)=>(v>=0?'+':'')+(v*100).toFixed(d)+'%';
 const usd=v=>'$'+(v>=100?v.toFixed(2):v.toFixed(3));
 
-let iv=store.get('hlgap.iv')||'15m';
+// 신호 알림을 눌러 열면 ?iv=1h 로 1시간봉을 보여 줍니다.
+const qIv=new URLSearchParams(location.search).get('iv');
+let iv=IV[qIv]?qIv:store.get('hlgap.iv')||'15m';
 let coinS=store.get('hlgap.cS')||'xyz:SMSN', coinH=store.get('hlgap.cH')||'xyz:SKHX';
 $('cS').value=coinS;$('cH').value=coinH;
 let cS=new Map(), cH=new Map();   // t -> {t,T,o,h,l,c}
@@ -554,7 +573,65 @@ function render(){
 function setIv(v){iv=v;store.set('hlgap.iv',v);loadSpan();[...$('ivSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.iv===v))}
 $('ivSeg').addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b||b.dataset.iv===iv)return;setIv(b.dataset.iv);hoverI=null;rows=[];render();loadHistory()});
 ['win','entry','exit','stop','fee'].forEach(id=>$(id).addEventListener('change',render));
-$('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];view.end=0;view.rightT=null;loadHistory()});
+['win','entry','exit','stop'].forEach(id=>$(id).addEventListener('change',()=>{drawAlarm();syncAlarm()}));
+$('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];view.end=0;view.rightT=null;loadHistory();syncAlarm()});
+
+/* ---------- 1시간봉 신호 알림 (휴대폰 푸시) ---------- */
+// Cloudflare Worker가 5분마다 1시간봉 갭 점수를 계산해, 이 기기의 진입 기준을 넘으면 푸시를 보냅니다.
+// 화면을 닫아 둬도 옵니다. 기준(평소 길이·진입·청산·손절·종목)은 켤 때와 바꿀 때마다 서버에 함께 보냅니다.
+const PUSH_API=location.hostname.endsWith('github.io')?'https://dollar.calm6777.workers.dev':'';
+const alarmCfg=()=>({W:Math.max(20,Math.min(1000,parseInt($('win').value)||96)),E:+$('entry').value||2,X:+$('exit').value||0,S:+$('stop').value||99,coinS,coinH});
+const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const pushOK='serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const fromB64u=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(s.length/4)*4,'=')),c=>c.charCodeAt(0));
+let alarmSub=null;
+async function pushApi(path,body){
+  const r=await fetch(PUSH_API+'/api/push/'+path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'HTTP '+r.status);return j;
+}
+function drawAlarm(msg){
+  const on=!!alarmSub,E=alarmCfg().E;
+  $('aState').textContent=on?`켜짐 · 갭 점수가 ±${E}를 넘으면 이 기기로 알려 드려요(5분마다 확인).`:`꺼짐 · 켜면 1시간봉 갭 점수가 ±${E}를 넘을 때 화면을 닫아 둬도 알려 드려요.`;
+  $('aToggle').textContent=on?'끄기':'알림 켜기';$('aToggle').classList.toggle('primary',!on);$('aTest').hidden=!on;
+  $('aHint').textContent=msg||'';$('aHint').hidden=!msg;
+}
+function syncAlarm(){if(alarmSub)pushApi('sub',{sub:alarmSub.toJSON(),cfg:alarmCfg()}).catch(()=>{})}
+async function alarmOn(){
+  // 아이폰은 누른 직후에 바로 권한을 물어야 해서 맨 먼저 부릅니다.
+  const perm=await Notification.requestPermission();
+  if(perm!=='granted')return drawAlarm(perm==='denied'?'알림이 차단돼 있어요. 휴대폰(또는 브라우저) 설정에서 이 사이트의 알림을 허용한 뒤 다시 눌러 주세요.':'알림을 허용해야 켤 수 있어요.');
+  const reg=await navigator.serviceWorker.register('sw.js');await navigator.serviceWorker.ready;
+  const {key}=await pushApi('key');
+  let sub=await reg.pushManager.getSubscription();
+  if(sub&&sub.options.applicationServerKey&&b64u(sub.options.applicationServerKey)!==key){await sub.unsubscribe();sub=null}
+  sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:fromB64u(key)});
+  await pushApi('sub',{sub:sub.toJSON(),cfg:alarmCfg()});
+  alarmSub=sub;drawAlarm('켰어요. ‘테스트 알림 보내기’로 이 기기에 잘 오는지 확인해 보세요.');
+}
+async function alarmOff(){
+  const sub=alarmSub;alarmSub=null;
+  await pushApi('unsub',{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe().catch(()=>{});drawAlarm();
+}
+$('aToggle').addEventListener('click',async()=>{
+  const b=$('aToggle');b.disabled=true;
+  try{await(alarmSub?alarmOff():alarmOn())}catch(e){drawAlarm(`알림을 바꾸지 못했어요 (${e.message}). 잠시 뒤 다시 눌러 주세요.`)}
+  b.disabled=false;
+});
+$('aTest').addEventListener('click',async()=>{
+  const b=$('aTest');b.disabled=true;
+  try{await pushApi('test',{endpoint:alarmSub.endpoint});drawAlarm('테스트 알림을 보냈어요. 몇 초 안에 오지 않으면 휴대폰의 알림 설정을 확인해 주세요.')}
+  catch(e){drawAlarm(e.message)}
+  b.disabled=false;
+});
+(async()=>{
+  if(!pushOK){$('aToggle').disabled=true;
+    return drawAlarm(isIOS&&!standalone?'아이폰은 사파리 공유 버튼 → ‘홈 화면에 추가’로 설치한 뒤, 홈 화면의 ‘갭 차트’ 앱에서 켤 수 있어요(iOS 16.4 이상).':'이 브라우저는 푸시 알림을 지원하지 않아요. 크롬이나 사파리에서 열어 주세요.')}
+  try{const reg=await navigator.serviceWorker.getRegistration();alarmSub=(reg&&await reg.pushManager.getSubscription())||null}catch(e){}
+  if(alarmSub&&Notification.permission!=='granted')alarmSub=null;
+  drawAlarm();syncAlarm();
+})();
 let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150)});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&(!ws||ws.readyState>1))loadHistory()});
 setIv(iv);setType(chartType);loadHistory();

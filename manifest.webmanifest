@@ -1,0 +1,12 @@
+{
+  "name": "삼성·하이닉스 갭",
+  "short_name": "갭 차트",
+  "description": "삼성·하이닉스 실시간 갭 점수와 신호 알림",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111316",
+  "theme_color": "#111316",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

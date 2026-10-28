@@ -28,7 +28,9 @@ npm run deploy         # → https://dollar.calm6777.workers.dev (저장소 전�
 
 - 주소는 Worker 이름(`wrangler.jsonc`의 `name`)으로 정해지고, 다시 배포해도 바뀌지 않습니다.
 - 내 도메인을 쓰려면 Cloudflare 대시보드 → Workers → dollar → Settings → Domains & Routes에서 추가합니다.
-- 비밀값·DB가 필요 없습니다. 무료 플랜으로 충분합니다(Worker는 시세를 해석하지 않고 중계만 하므로 CPU를 거의 쓰지 않습니다).
+- 비밀값이 필요 없습니다. 무료 플랜으로 충분합니다(Worker는 시세를 해석하지 않고 중계만 하므로 CPU를 거의 쓰지 않습니다).
+- 갭 차트의 신호 알림은 D1 데이터베이스 `pair-gap-alerts`(바인딩 `DB`)에 구독 기기를 두고, 5분마다 도는 크론(`triggers.crons`)이 확인합니다. 표는 처음 쓸 때 자동으로 만듭니다. 다른 계정으로 옮길 때는 `npx wrangler d1 create pair-gap-alerts`로 만든 ID를 `wrangler.jsonc`에 넣고, 휴대폰에서 알림을 다시 켜면 됩니다.
+- 로컬에서 크론을 시험하려면 `npm run dev`를 띄운 뒤 http://localhost:8787/__scheduled 를 엽니다.
 - 혼자만 보고 싶다면 Cloudflare Zero Trust의 Access로 이메일 로그인을 걸 수 있습니다.
 
 ## 구조
@@ -38,6 +40,8 @@ npm run deploy         # → https://dollar.calm6777.workers.dev (저장소 전�
 | `src/worker/index.ts` | `/api/market?p=hist\|live`(Yahoo 시세 묶음), `/api/calendar`, `/api/news`. 메모리 캐시 + 엣지 캐시, 실패 시 마지막 값 사용, GitHub Pages 출처 CORS 허용 |
 | `src/worker/calendar.ts` | FXStreet(실패 시 Forex Factory) 일정에서 미국·중국(중간 이상), 일본·유로존(높음)만 골라 한글 제목을 붙임 |
 | `src/worker/news.ts` | Bing(실패 시 Google) 뉴스 RSS '원달러 환율' |
+| `src/worker/gap-alert.ts`, `src/lib/gap.ts` | 갭 차트 1시간봉 신호 알림: `/api/push/key·sub·unsub·test`, 5분마다 갭 점수 계산·알림 규칙 |
+| `src/worker/push.ts` | Web Push 발송(VAPID 서명, aes128gcm 암호화, WebCrypto만 사용) |
 | `src/lib/market.ts` | Yahoo 응답 → KST 시계열, 16:00 기준 값(`asOf`), 서울 세션 일봉 |
 | `src/lib/indicators.ts` | SMA·EMA·RSI·MACD·볼린저·ATR·피벗·상관·릿지 회귀 |
 | `src/lib/outlook.ts` | 요인 점수, 백테스트, 예상 밴드, 가격대, 요약 문장 |

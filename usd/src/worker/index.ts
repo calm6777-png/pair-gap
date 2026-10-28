@@ -3,6 +3,12 @@
 import { ALL_SYMBOLS } from "../lib/outlook.ts";
 import { fetchCalendar } from "./calendar.ts";
 import { fetchNews } from "./news.ts";
+import { checkGapAlerts, sendTest, subscribe, unsubscribe } from "./gap-alert.ts";
+import { vapidKeys } from "./push.ts";
+
+interface Env {
+  DB: D1Database; // 갭 신호 알림 구독(push_meta, gap_subs)
+}
 
 const PLANS = {
   hist: { range: "1y", interval: "60m", ttl: 1800 },
@@ -68,14 +74,61 @@ async function marketBundle(plan: Plan): Promise<string> {
   return `{${parts.join(",")}}`;
 }
 
-// GitHub Pages(calm6777-png.github.io/pair-gap/usd/)에 올린 화면이 이 Worker의 /api/* 를 부를 수 있게 허용합니다.
+// GitHub Pages(calm6777-png.github.io/pair-gap/)에 올린 화면이 이 Worker의 /api/* 를 부를 수 있게 허용합니다.
 // Worker 주소에서 직접 연 화면은 같은 출처라 따로 허용할 필요가 없습니다.
 const ALLOWED_ORIGINS = new Set(["https://calm6777-png.github.io"]);
 
 function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get("Origin");
   if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
-  return { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET, OPTIONS", Vary: "Origin" };
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
+}
+
+// 알림 구독 변경(POST)은 이 화면들에서 온 요청만 받습니다.
+function fromOurPage(request: Request, url: URL) {
+  const origin = request.headers.get("Origin");
+  return origin === url.origin || (origin != null && ALLOWED_ORIGINS.has(origin));
+}
+
+async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+  const text = await request.text();
+  if (text.length > 4000) return null;
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+async function pushRoute(request: Request, url: URL, env: Env): Promise<Response> {
+  const route = url.pathname.slice("/api/push/".length);
+  if (route === "key" && request.method === "GET") return respond(request, JSON.stringify({ key: (await vapidKeys(env.DB)).publicKey }), 0);
+  if (request.method !== "POST") return respond(request, JSON.stringify({ error: "없는 경로입니다." }), 0, 404);
+  if (!fromOurPage(request, url)) return respond(request, JSON.stringify({ error: "허용되지 않은 출처입니다." }), 0, 403);
+  const body = await readBody(request);
+  if (!body) return respond(request, JSON.stringify({ error: "요청 형식이 올바르지 않습니다." }), 0, 400);
+  let error: string | null;
+  switch (route) {
+    case "sub":
+      error = await subscribe(env.DB, body.sub, body.cfg);
+      break;
+    case "unsub":
+      await unsubscribe(env.DB, body.endpoint);
+      error = null;
+      break;
+    case "test":
+      error = await sendTest(env.DB, body.endpoint);
+      break;
+    default:
+      return respond(request, JSON.stringify({ error: "없는 경로입니다." }), 0, 404);
+  }
+  return respond(request, JSON.stringify(error ? { error } : { ok: true }), 0, error ? 400 : 200);
 }
 
 function respond(request: Request, body: string, maxAge: number, status = 200): Response {
@@ -92,10 +145,11 @@ function respond(request: Request, body: string, maxAge: number, status = 200): 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request) });
     try {
+      if (url.pathname.startsWith("/api/push/")) return await pushRoute(request, url, env);
       switch (url.pathname) {
         case "/api/market": {
           const plan: Plan = url.searchParams.get("p") === "hist" ? "hist" : "live";
@@ -114,4 +168,13 @@ export default {
       return respond(request, JSON.stringify({ error: message(e) }), 0, 502);
     }
   },
-} satisfies ExportedHandler;
+
+  // 5분마다 갭 신호를 확인합니다(wrangler.jsonc의 triggers.crons).
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      checkGapAlerts(env.DB)
+        .then((r) => r.sent && console.log("gap alerts sent", r))
+        .catch((e) => console.error("gap alerts", e)),
+    );
+  },
+} satisfies ExportedHandler<Env>;

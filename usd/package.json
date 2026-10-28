@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/app/main.ts --bundle --format=esm --target=es2020 --minify --outfile=app.js",
-    "dev": "wrangler dev --port 8787",
+    "dev": "wrangler dev --port 8787 --test-scheduled",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.app.json",
     "test": "node --test \"test/*.test.ts\""
