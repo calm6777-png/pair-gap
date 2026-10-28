@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>삼성·하이닉스 실시간 갭</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column — live verdict + gauge, one large gap chart with news pins, news reactions; settings and backtest folded */
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --line:#e2e5ea; --grid:#edf0f3;
+  --fg:#101317; --fg2:#4a525d; --muted:#7a838f;
+  --sam:#2a78d6; --hyn:#eb6834;
+  --samzone:rgba(42,120,214,.11); --hynzone:rgba(235,104,52,.12);
+  --pin:#6250d6; --pinzone:rgba(98,80,214,.10);
+  --good:#0d8a4f; --crit:#c8372d; --warn:#b77600;
+  --sans:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#111316; --panel:#1a1d21; --line:#2c3138; --grid:#23272d;
+  --fg:#eff1f4; --fg2:#b9c0c9; --muted:#8a929d;
+  --sam:#3987e5; --hyn:#d95926;
+  --samzone:rgba(57,135,229,.16); --hynzone:rgba(217,89,38,.17);
+  --pin:#9085e9; --pinzone:rgba(144,133,233,.14);
+  --good:#3fbf7f; --crit:#ec6a60; --warn:#e0a63a; color-scheme:dark}}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:720px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+[hidden]{display:none!important}
+h1{font-size:19px;font-weight:700;margin:0}
+h2{font-size:16px;font-weight:700;margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.conn{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2);border:1px solid var(--line);border-radius:99px;padding:3px 10px;background:var(--panel)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.conn.live .dot{background:var(--good);box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 25%,transparent)}
+.conn.bad .dot{background:var(--crit)} .conn.wait .dot{background:var(--warn)}
+.alert{border:1px solid var(--crit);color:var(--fg);background:color-mix(in srgb,var(--crit) 8%,var(--panel));border-radius:10px;padding:10px 12px;font-size:13px}
+/* hero */
+.hero{display:flex;flex-direction:column;gap:12px}
+.hero .lbl{font-size:13px;color:var(--muted)}
+.verdict{font-size:24px;font-weight:700;line-height:1.3;text-wrap:balance}
+.verdict .h{color:var(--hyn)} .verdict .s{color:var(--sam)}
+.line2{font-size:14px;color:var(--fg2);margin:0}
+.gauge{position:relative;height:44px}
+.gauge .bar{position:absolute;left:0;right:0;top:12px;height:14px;border-radius:7px;overflow:hidden;display:flex}
+.gauge .bar span{height:100%}
+.gauge .mk{position:absolute;top:4px;width:4px;height:30px;margin-left:-2px;border-radius:2px;background:var(--fg);box-shadow:0 0 0 2px var(--panel);transition:left .4s}
+.gauge .ends{position:absolute;left:0;right:0;top:30px;display:flex;justify-content:space-between;font-size:12px;color:var(--fg2)}
+.meta{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:13px;color:var(--fg2)}
+.meta .num{color:var(--fg);font-size:15px}
+.tick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.tick .nm{font-size:12px;color:var(--fg2);display:flex;align-items:center;gap:6px}
+.tick .px{font-family:var(--mono);font-size:18px}
+.tick .sm{font-size:12px;color:var(--muted)}
+.sw{width:12px;height:3px;border-radius:2px;display:inline-block}
+/* chart */
+.chead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--fg2);padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);font-weight:500}
+.readout{font-size:13px;color:var(--fg2);min-height:22px;display:flex;gap:4px 14px;flex-wrap:wrap}
+.readout .num{color:var(--fg)}
+svg{display:block;width:100%;height:auto;touch-action:pan-y}
+svg text{fill:var(--muted);font-family:var(--mono);font-size:11px}
+svg text.zl{font-family:var(--sans);font-size:12px;fill:var(--fg2)}
+svg text.pn{fill:#fff;font-size:11px;font-family:var(--mono)}
+.how{font-size:12px;color:var(--muted);margin:6px 0 0}
+/* news */
+.news{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.nitem{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--panel)}
+.nitem[aria-pressed=true]{border-color:var(--pin);box-shadow:0 0 0 1px var(--pin)}
+.nitem .no{width:24px;height:24px;border-radius:50%;background:var(--pin);color:#fff;font-family:var(--mono);font-size:12px;display:grid;place-items:center}
+.nitem .tt{font-weight:500;overflow-wrap:anywhere}
+.nitem .dt{font-size:12px;color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;border-radius:6px;padding:2px 7px;background:var(--bg);color:var(--fg2);white-space:nowrap}
+.chip b{font-family:var(--mono);font-weight:500}
+.chip.h b{color:var(--hyn)} .chip.s b{color:var(--sam)}
+.del{background:none;border:0;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:2px 4px}
+.addrow{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:8px;margin-top:10px}
+.addrow .t{grid-column:1/-1}
+input,select,button,textarea{font:inherit;color:var(--fg)}
+input[type=number],input[type=text],input[type=date],input[type=time]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0;width:100%}
+.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:500}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.pin{background:var(--pin);color:#fff;border-color:var(--pin)}
+:focus-visible{outline:2px solid var(--sam);outline-offset:2px}
+.empty{font-size:13px;color:var(--muted);padding:6px 2px}
+details.fold{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 16px}
+details.fold>summary{cursor:pointer;padding:14px 0;font-weight:500;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::after{content:"+";color:var(--muted);font-size:18px}
+details.fold[open]>summary::after{content:"–"}
+details.fold>.in{padding-bottom:16px;display:flex;flex-direction:column;gap:12px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--fg2)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stats .lbl{font-size:12px;color:var(--muted)} .stats .v{font-family:var(--mono);font-size:19px}
+.pos{color:var(--good)} .neg{color:var(--crit)}
+.hint{font-size:13px;color:var(--fg2);margin:0}
+.tbl{overflow-x:auto} table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap;font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:500} td:first-child,th:first-child{text-align:left}
+.fine{font-size:12px;color:var(--muted);line-height:1.6;margin:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>삼성 · 하이닉스 실시간 갭</h1>
+    <span class="conn wait" id="conn"><span class="dot"></span><span id="connTxt">연결 중</span></span>
+  </div>
+  <div class="alert" id="alert" hidden></div>
+
+  <section class="panel hero" aria-label="지금의 갭">
+    <div class="lbl" id="hDate">하이퍼리퀴드 xyz:SMSN · xyz:SKHX 시세를 불러오는 중…</div>
+    <div class="verdict" id="hVerdict">–</div>
+    <div class="gauge" aria-hidden="true">
+      <div class="bar" id="gBar"></div><div class="mk" id="gMk"></div>
+      <div class="ends"><span>◀ 삼성 비쌈</span><span>평소</span><span>하이닉스 비쌈 ▶</span></div>
+    </div>
+    <p class="line2" id="hLine"></p>
+    <div class="meta">
+      <span>갭 점수 <span class="num" id="hZ">–</span></span>
+      <span>평소 대비 <span class="num" id="hDev">–</span></span>
+      <span>비율 <span class="num" id="hRatio">–</span></span>
+    </div>
+    <div class="tick">
+      <div><div class="nm"><span class="sw" style="background:var(--sam)"></span>삼성 SMSN</div><div class="px" id="pS">–</div><div class="sm" id="iS"></div></div>
+      <div><div class="nm"><span class="sw" style="background:var(--hyn)"></span>하이닉스 SKHX</div><div class="px" id="pH">–</div><div class="sm" id="iH"></div></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="갭 흐름과 뉴스">
+    <div class="chead">
+      <h2>갭 흐름과 뉴스</h2>
+      <div class="seg" role="group" aria-label="캔들 간격" id="ivSeg">
+        <button type="button" data-iv="1m">1분</button><button type="button" data-iv="5m">5분</button><button type="button" data-iv="15m" aria-pressed="true">15분</button><button type="button" data-iv="1h">1시간</button><button type="button" data-iv="4h">4시간</button>
+      </div>
+    </div>
+    <div class="readout" id="readout"></div>
+    <div id="chart"></div>
+    <p class="how">위쪽 주황 구역은 하이닉스가 평소보다 비싼 구간, 아래쪽 파란 구역은 삼성이 비싼 구간입니다. 보라색 번호는 뉴스예요. 차트를 터치하면 그 시점 값이 보입니다.</p>
+
+    <div class="chead" style="margin-top:14px">
+      <h2 style="font-size:15px">뉴스 뒤 갭이 어떻게 움직였나</h2>
+      <div style="display:flex;gap:8px"><button type="button" class="btn pin" id="bNow">지금 뉴스 찍기</button><button type="button" class="btn" id="bNewNews">+ 시각 지정</button></div>
+    </div>
+    <form id="newsForm" hidden>
+      <div class="addrow">
+        <input type="date" id="nD" aria-label="날짜" required>
+        <input type="time" id="nT" aria-label="시각 (한국시간)" required>
+        <input type="text" class="t" id="nTitle" placeholder="뉴스 제목 (예: 하이닉스 HBM4 공급 계약 보도)" aria-label="뉴스 제목">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px"><button type="submit" class="btn primary">추가</button><button type="button" class="btn" id="bCancelNews">취소</button></div>
+    </form>
+    <div class="news" id="news"></div>
+  </section>
+
+  <details class="fold">
+    <summary>신호 기준 바꾸기</summary>
+    <div class="in">
+      <div class="grid2">
+        <label class="f">평소 기준 길이 (캔들 수)<input type="number" id="win" min="20" max="1000" step="10" value="96"></label>
+        <label class="f">진입: 갭 점수 ±<input type="number" id="entry" min="0.5" max="4" step="0.1" value="2"></label>
+        <label class="f">청산: 갭 점수 ±<input type="number" id="exit" min="0" max="3" step="0.1" value="0.5"></label>
+        <label class="f">손절: 갭 점수 ±<input type="number" id="stop" min="1" max="8" step="0.1" value="3.5"></label>
+      </div>
+      <p class="hint" id="winHint"></p>
+      <div class="grid2">
+        <label class="f">삼성 종목 이름<input type="text" id="cS" value="xyz:SMSN"></label>
+        <label class="f">하이닉스 종목 이름<input type="text" id="cH" value="xyz:SKHX"></label>
+      </div>
+      <button type="button" class="btn" id="bReload" style="align-self:flex-start">종목 다시 불러오기</button>
+    </div>
+  </details>
+
+  <details class="fold">
+    <summary>규칙대로 매매했다면</summary>
+    <div class="in">
+      <p class="hint">불러온 캔들 범위에서, 갭 점수가 진입 기준을 넘으면 비싼 쪽 숏·싼 쪽 롱을 같은 금액으로 잡고 청산 기준에서 정리했다고 가정한 결과입니다. 펀딩비는 빠져 있습니다.</p>
+      <div class="stats">
+        <div><div class="lbl">누적 수익률</div><div class="v" id="bRet">–</div></div>
+        <div><div class="lbl">최대 낙폭</div><div class="v" id="bDD">–</div></div>
+        <div><div class="lbl">거래 / 승률</div><div class="v" id="bN">–</div></div>
+      </div>
+      <label class="f" style="max-width:220px">편도 수수료 % (다리 하나당)<input type="number" id="fee" min="0" max="1" step="0.005" value="0.05"></label>
+      <details><summary style="cursor:pointer;font-size:14px">거래 내역</summary><div class="tbl" id="trades"></div></details>
+    </div>
+  </details>
+
+  <p class="fine">시세는 하이퍼리퀴드 공개 API에서 브라우저가 직접 받아옵니다. 두 계약 모두 1주당 달러 가격이라 환율 영향은 비율에서 상쇄됩니다. 한국 장이 닫힌 시간(주말·야간)의 가격은 현물이 아니라 선물 거래로만 정해져 변동이 클 수 있습니다. 뉴스 핀은 이 브라우저에만 저장됩니다. 투자 판단은 본인 책임입니다.</p>
+</div>
+
+<script>
+(function(){
+const API='https://api.hyperliquid.xyz/info', WSS='wss://api.hyperliquid.xyz/ws';
+const IV={ '1m':60e3,'5m':300e3,'15m':900e3,'1h':3600e3,'4h':14400e3 };
+const $=id=>document.getElementById(id);
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const kst=(t,withDate=true)=>new Date(t).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,...(withDate?{month:'2-digit',day:'2-digit'}:{}),hour:'2-digit',minute:'2-digit'});
+const pct=(v,d=1)=>(v>=0?'+':'')+(v*100).toFixed(d)+'%';
+const usd=v=>'$'+(v>=100?v.toFixed(2):v.toFixed(3));
+
+let iv=store.get('hlgap.iv')||'15m';
+let coinS=store.get('hlgap.cS')||'xyz:SMSN', coinH=store.get('hlgap.cH')||'xyz:SKHX';
+$('cS').value=coinS;$('cH').value=coinH;
+let cS=new Map(), cH=new Map();   // t -> {t,c}
+let rows=[];                      // merged {t,T,s,h}
+let news=[];try{news=JSON.parse(store.get('hlgap.news')||'[]')}catch(e){}
+let sel=null,hoverI=null,ws=null,lastMsg=0,ctx={};
+
+/* ---------- data ---------- */
+async function post(body){
+  const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok)throw new Error('HTTP '+r.status);return r.json();
+}
+async function loadHistory(){
+  setConn('wait','불러오는 중');showAlert('');
+  const end=Date.now(),start=end-IV[iv]*1200;
+  try{
+    const [a,b]=await Promise.all([coinS,coinH].map(c=>post({type:'candleSnapshot',req:{coin:c,interval:iv,startTime:start,endTime:end}})));
+    if(!Array.isArray(a)||!a.length||!Array.isArray(b)||!b.length)throw new Error('empty');
+    cS=new Map(a.map(k=>[k.t,{t:k.t,T:k.T,c:+k.c}]));cH=new Map(b.map(k=>[k.t,{t:k.t,T:k.T,c:+k.c}]));
+    remerge();render();openWS();loadCtx();
+  }catch(e){
+    setConn('bad','연결 안 됨');
+    showAlert(e.message==='empty'
+      ?`‘${coinS}’ 또는 ‘${coinH}’ 캔들이 비어 있습니다. ‘신호 기준 바꾸기’에서 종목 이름을 하이퍼리퀴드 표기와 같게 고쳐 주세요.`
+      :`하이퍼리퀴드 서버에 접속하지 못했습니다 (${e.message}). 이 파일을 claude.ai 앱 안에서 열었다면 외부 접속이 막혀 있으니, 크롬·사파리 같은 일반 브라우저에서 열어 주세요.`);
+  }
+}
+function remerge(){
+  const out=[];for(const [t,s] of cS){const h=cH.get(t);if(h)out.push({t,T:s.T,s:s.c,h:h.c})}
+  out.sort((x,y)=>x.t-y.t);rows=out.slice(-1200);
+}
+async function loadCtx(){
+  try{
+    const dex=coinS.includes(':')?coinS.split(':')[0]:'';
+    const res=await post(dex?{type:'metaAndAssetCtxs',dex}:{type:'metaAndAssetCtxs'});
+    const [meta,ctxs]=res;ctx={};
+    meta.universe.forEach((u,i)=>{ctx[u.name]=ctxs[i]});
+    drawCtx();
+  }catch(e){}
+}
+function drawCtx(){
+  const f=(c,el)=>{const x=ctx[c]||ctx[c.split(':')[1]];if(!x){$(el).textContent='';return}
+    const vol=+x.dayNtlVlm,fr=+x.funding*100;
+    $(el).textContent=`24시간 거래대금 $${(vol/1e6).toFixed(1)}M · 펀딩 ${fr>=0?'+':''}${fr.toFixed(4)}%/시간`};
+  f(coinS,'iS');f(coinH,'iH');
+}
+let renderQ=false;
+function openWS(){
+  try{ws&&ws.close()}catch(e){}
+  const sock=new WebSocket(WSS);ws=sock;
+  sock.onopen=()=>{[coinS,coinH].forEach(c=>sock.send(JSON.stringify({method:'subscribe',subscription:{type:'candle',coin:c,interval:iv}})));setConn('live','실시간')};
+  sock.onmessage=ev=>{let m;try{m=JSON.parse(ev.data)}catch(e){return}
+    if(m.channel!=='candle'||!m.data)return;const k=m.data;lastMsg=Date.now();
+    const same=c=>k.s===c||String(k.s).toLowerCase()===c.toLowerCase()||c.endsWith(':'+k.s);const map=same(coinS)?cS:same(coinH)?cH:null;if(!map||k.i!==iv)return;
+    map.set(k.t,{t:k.t,T:k.T,c:+k.c});
+    if(!renderQ){renderQ=true;setTimeout(()=>{renderQ=false;remerge();render()},800)}};
+  sock.onclose=()=>{if(ws!==sock)return;setConn('wait','재연결 중');setTimeout(()=>{if(ws===sock)openWS()},3000)};
+  sock.onerror=()=>{};
+}
+setInterval(()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({method:'ping'}));
+  if(rows.length&&ws&&ws.readyState===1)setConn('live',lastMsg?`실시간 · ${new Date(lastMsg).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false})}`:'실시간')},20000);
+setInterval(loadCtx,60000);
+function setConn(cls,txt){$('conn').className='conn '+cls;$('connTxt').textContent=txt}
+function showAlert(m){$('alert').textContent=m;$('alert').hidden=!m}
+
+/* ---------- math ---------- */
+function compute(){
+  const W=Math.max(20,Math.min(1000,parseInt($('win').value)||96)),n=rows.length;
+  const lr=rows.map(r=>Math.log(r.h/r.s)),z=Array(n).fill(null),mu=Array(n).fill(null);
+  for(let i=W-1;i<n;i++){let m=0;for(let k=i-W+1;k<=i;k++)m+=lr[k];m/=W;let v=0;for(let k=i-W+1;k<=i;k++)v+=(lr[k]-m)**2;v=Math.sqrt(v/(W-1));mu[i]=m;z[i]=v>0?(lr[i]-m)/v:0}
+  return {W,z,mu,lr};
+}
+function idxAtOrBefore(t){let lo=0,hi=rows.length-1,a=-1;while(lo<=hi){const m=(lo+hi)>>1;if(rows[m].t<=t){a=m;lo=m+1}else hi=m-1}return a}
+function reactions(st){
+  const steps=[[15*60e3,'15분 뒤'],[3600e3,'1시간 뒤'],[4*3600e3,'4시간 뒤'],[24*3600e3,'24시간 뒤']].filter(s=>s[0]>=IV[iv]);
+  const now=rows.length?rows[rows.length-1].T:Date.now();
+  return news.map((nw,j)=>{
+    const b=idxAtOrBefore(nw.t-IV[iv]);   // last candle fully closed before the news
+    const e=idxAtOrBefore(nw.t);          // candle containing the news
+    const out={...nw,no:j+1,e,steps:[]};
+    if(b<0||e<0){out.out=true;return out}
+    out.z0=st.z[b];
+    steps.forEach(([d,label])=>{
+      if(nw.t+d>now){out.steps.push({label,v:null,pending:true});return}
+      const k=idxAtOrBefore(nw.t+d);out.steps.push({label,v:Math.exp(st.lr[k]-st.lr[b])-1});
+    });
+    const last=rows.length-1;out.zNow=st.z[Math.min(last,idxAtOrBefore(nw.t+steps.at(-1)[0]))];
+    return out;
+  });
+}
+function backtest(z,from){
+  const E=+$('entry').value||2,X=+$('exit').value,S=+$('stop').value||99,fee=(+$('fee').value||0)/100,n=rows.length;
+  let pos=0,v=100,peak=100,mdd=0,cur=null;const trades=[];
+  for(let i=from;i<n;i++){
+    if(i>from&&pos){const rS=rows[i].s/rows[i-1].s-1,rH=rows[i].h/rows[i-1].h-1;v*=1+pos*(rH-rS)/2}
+    const zi=z[i];let np=pos;
+    if(zi!=null){if(!pos){if(zi>=E)np=-1;else if(zi<=-E)np=1}else if(pos===-1){if(zi<=X||zi>=S)np=0}else if(zi>=-X||zi<=-S)np=0}
+    if(np!==pos){v*=1-fee*2*Math.abs(np-pos)/2;
+      if(pos&&cur){cur.out=rows[i].t;cur.ret=v/cur.v0-1;cur.stop=Math.abs(zi)>=S;trades.push(cur);cur=null}
+      if(np)cur={dir:np,in:rows[i].t,v0:v};pos=np}
+    peak=Math.max(peak,v);mdd=Math.min(mdd,v/peak-1);
+  }
+  if(cur){cur.ret=v/cur.v0-1;trades.push(cur)}
+  return {mdd,trades,ret:v/100-1};
+}
+
+/* ---------- chart ---------- */
+function ticks(lo,hi,c){const sp=hi-lo||1,s0=sp/c,mag=10**Math.floor(Math.log10(s0)),st=[1,2,2.5,5,10].map(m=>m*mag).find(s=>s>=s0);const t=[];for(let v=Math.ceil(lo/st)*st;v<=hi+1e-9;v+=st)t.push(+v.toFixed(8));return t}
+let main=null;
+function drawMain(st,from,rx){
+  const el=$('chart'),Wd=Math.max(320,el.clientWidth||640),H=Wd<480?280:300,L=34,R=12,T=34,B=24;
+  const E=+$('entry').value||2,n=rows.length,N=n-from;
+  const zs=[];for(let i=from;i<n;i++)if(st.z[i]!=null)zs.push(st.z[i]);
+  let lo=Math.floor(Math.min(-E-1,...zs)*2)/2,hi=Math.ceil(Math.max(E+1,...zs)*2)/2;
+  const x=i=>L+((i-from)/Math.max(1,N-1))*(Wd-L-R),y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+  let s=`<svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="갭 점수 추이와 뉴스">`;
+  s+=`<rect x="${L}" y="${T}" width="${Wd-L-R}" height="${y(E)-T}" fill="var(--hynzone)"/><rect x="${L}" y="${y(-E)}" width="${Wd-L-R}" height="${H-B-y(-E)}" fill="var(--samzone)"/>`;
+  s+=`<text class="zl" x="${L+6}" y="${T+15}">하이닉스 비쌈</text><text class="zl" x="${L+6}" y="${H-B-6}">삼성 비쌈</text>`;
+  ticks(lo,hi,4).forEach(t=>{s+=`<line x1="${L}" x2="${Wd-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end">${t>0?'+':''}${t}</text>`});
+  s+=`<line x1="${L}" x2="${Wd-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="3 3"/>`;
+  [from,from+Math.floor((N-1)/2),n-1].forEach((i,j)=>{s+=`<text x="${x(i)}" y="${H-6}" text-anchor="${['start','middle','end'][j]}">${kst(rows[i].t)}</text>`});
+  const sr=rx.find(r=>r.id===sel);
+  if(sr&&!sr.out&&sr.e>=from){const last=sr.steps.length?Math.min(n-1,idxAtOrBefore(sr.t+[15*60e3,3600e3,4*3600e3,24*3600e3].filter(d=>d>=IV[iv]).at(-1))):sr.e;const a=x(Math.max(from,sr.e-1)),b=x(last);s+=`<rect x="${a}" y="${T}" width="${Math.max(3,b-a)}" height="${H-T-B}" fill="var(--pinzone)"/>`}
+  rx.forEach(r=>{if(r.out||r.e<from)return;const X=x(r.e);s+=`<line x1="${X}" x2="${X}" y1="${T-6}" y2="${H-B}" stroke="var(--pin)" stroke-width="${r.id===sel?2:1.25}" ${r.id===sel?'':'stroke-dasharray="3 3"'}/>`});
+  let d='',pen=false;for(let i=from;i<n;i++){const v=st.z[i];if(v==null){pen=false;continue}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1);pen=true}
+  s+=`<path d="${d}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const zl=st.z[n-1];if(zl!=null)s+=`<circle cx="${x(n-1)}" cy="${y(zl)}" r="5" fill="${zl>=E?'var(--hyn)':zl<=-E?'var(--sam)':'var(--fg)'}" stroke="var(--panel)" stroke-width="2"/>`;
+  let lastX=-99;rx.forEach(r=>{if(r.out||r.e<from)return;const X=x(r.e),py=X-lastX<22?4:16;lastX=X;
+    s+=`<g class="pin" data-id="${r.id}" style="cursor:pointer"><circle cx="${X}" cy="${py+8}" r="${r.id===sel?11:10}" fill="var(--pin)" stroke="var(--panel)" stroke-width="2"/><text class="pn" x="${X}" y="${py+12}" text-anchor="middle">${r.no}</text><circle cx="${X}" cy="${py+8}" r="18" fill="transparent"/></g>`});
+  s+=`<line class="xh" y1="${T}" y2="${H-B}" stroke="var(--fg2)" visibility="hidden"/><circle class="hd" r="5" fill="var(--fg)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>`;
+  s+=`<rect class="hit" x="${L}" y="${T}" width="${Wd-L-R}" height="${H-T-B}" fill="transparent"/></svg>`;
+  el.innerHTML=s;
+  const svg=el.querySelector('svg');main={svg,x,y,from,n,st};
+  const toI=ev=>{const r=svg.getBoundingClientRect(),px=(ev.clientX-r.left)*(Wd/r.width);return Math.max(from,Math.min(n-1,from+Math.round((px-L)/(Wd-L-R)*(N-1))))};
+  const hit=svg.querySelector('.hit');
+  hit.addEventListener('pointermove',ev=>{hoverI=toI(ev);drawHover()});hit.addEventListener('pointerdown',ev=>{hoverI=toI(ev);drawHover()});
+  svg.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse'){hoverI=null;drawHover()}});
+  svg.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',()=>selectNews(p.dataset.id,true)));
+}
+function drawHover(){
+  if(!main)return;const {svg,x,y,st,n}=main;const xh=svg.querySelector('.xh'),hd=svg.querySelector('.hd');
+  const i=hoverI??n-1;
+  if(hoverI!=null&&st.z[i]!=null){xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');hd.setAttribute('cx',x(i));hd.setAttribute('cy',y(st.z[i]));hd.setAttribute('visibility','visible')}
+  else{xh.setAttribute('visibility','hidden');hd.setAttribute('visibility','hidden')}
+  const r=rows[i],zz=st.z[i];
+  $('readout').innerHTML=`<span class="num">${kst(r.t)}</span><span>갭 점수 <span class="num">${zz==null?'–':(zz>0?'+':'')+zz.toFixed(2)}</span></span><span>삼성 <span class="num">${usd(r.s)}</span></span><span>하이닉스 <span class="num">${usd(r.h)}</span></span>`;
+}
+
+/* ---------- news ---------- */
+function saveNews(){store.set('hlgap.news',JSON.stringify(news))}
+function chip(st){if(st.pending)return `<span class="chip">${st.label} <b>대기</b></span>`;if(st.v==null)return '';return `<span class="chip ${st.v>=0?'h':'s'}">${st.label} <b>${st.v>=0?'▲':'▼'} ${pct(st.v,2)}</b></span>`}
+function drawNews(rx){
+  const box=$('news');
+  if(!rx.length){box.innerHTML=`<div class="empty">헤드라인을 보자마자 ‘지금 뉴스 찍기’를 누르면 그 시각에 핀이 찍히고, 15분·1시간·4시간·24시간 뒤 갭 변화가 자동으로 채워집니다. 지난 뉴스는 ‘+ 시각 지정’으로 넣으세요.</div>`;return}
+  box.innerHTML=rx.map(r=>`<div role="button" tabindex="0" class="nitem" data-id="${r.id}" aria-pressed="${r.id===sel}"><span class="no">${r.no}</span><span><span class="dt">${new Date(r.t).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span><br><span class="tt"></span><span class="chips">${r.out?'<span class="chip">불러온 캔들 범위 밖 · 간격을 늘려 보세요</span>':r.steps.map(chip).join('')+(r.z0!=null&&r.zNow!=null?`<span class="chip">점수 <b>${r.z0.toFixed(1)} → ${r.zNow.toFixed(1)}</b></span>`:'')}</span></span><button type="button" class="del" aria-label="삭제" data-del="${r.id}">×</button></div>`).join('')
+    +`<p class="hint" style="font-size:12px">▲ 하이닉스가 삼성보다 더 오름(갭 확대) · ▼ 삼성이 더 오름. 뉴스 직전 마감 캔들 대비 변화입니다.</p>`;
+  box.querySelectorAll('.nitem').forEach((el,j)=>{el.querySelector('.tt').textContent=rx[j].title||'(제목 없음)';
+    el.addEventListener('click',ev=>{if(ev.target.dataset.del)return;selectNews(el.dataset.id,false)});
+    el.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();selectNews(el.dataset.id,false)}})});
+  box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{news=news.filter(n=>n.id!==b.dataset.del);if(sel===b.dataset.del)sel=null;saveNews();render()}));
+}
+let lastRx=[];
+function selectNews(id,fromChart){sel=sel===id?null:id;const r=lastRx.find(x=>x.id===id);if(sel&&r&&!r.out)hoverI=r.e;render();
+  if(fromChart){const el=document.querySelector(`.nitem[data-id="${id}"]`);el&&el.scrollIntoView({block:'nearest',behavior:'smooth'})}}
+function addNews(t,title){const id='n'+Date.now().toString(36);news.push({id,t,title});news.sort((a,b)=>a.t-b.t);saveNews();sel=id;render()}
+$('bNow').addEventListener('click',()=>{$('newsForm').hidden=false;$('bNewNews').hidden=true;
+  const now=new Date(),k=new Date(now.getTime()+9*3600e3).toISOString();$('nD').value=k.slice(0,10);$('nT').value=k.slice(11,16);
+  addNews(now.getTime(),'');pendingTitle=news.find(n=>n.id===sel);$('nTitle').value='';$('nTitle').placeholder='방금 찍은 뉴스 제목 (나중에 써도 됩니다)';$('nTitle').focus()});
+let pendingTitle=null;
+$('bNewNews').addEventListener('click',()=>{pendingTitle=null;$('newsForm').hidden=false;$('bNewNews').hidden=true;$('nTitle').placeholder='뉴스 제목';$('nD').focus()});
+$('bCancelNews').addEventListener('click',()=>{pendingTitle=null;$('newsForm').hidden=true;$('bNewNews').hidden=false});
+$('newsForm').addEventListener('submit',ev=>{ev.preventDefault();const ti=$('nTitle').value.trim();
+  if(pendingTitle){pendingTitle.title=ti;saveNews();pendingTitle=null}
+  else{const d=$('nD').value,t=$('nT').value;if(!d||!t)return;addNews(Date.parse(`${d}T${t}:00+09:00`),ti)}
+  $('nTitle').value='';$('newsForm').hidden=true;$('bNewNews').hidden=false;render()});
+
+/* ---------- render ---------- */
+function render(){
+  if(rows.length<30){$('chart').innerHTML='<p class="empty">캔들을 기다리는 중입니다.</p>';return}
+  const st=compute(),n=rows.length,E=+$('entry').value||2,X=+$('exit').value,S=+$('stop').value||99;
+  const from=Math.min(n-10,st.W-1);
+  const ivMin=IV[iv]/60e3;$('winHint').textContent=`지금 설정은 최근 ${st.W}개 캔들 ≈ ${(st.W*ivMin/60).toFixed(1)}시간을 ‘평소’로 봅니다.`;
+  const zl=st.z[n-1],ratio=rows[n-1].h/rows[n-1].s,dev=ratio/Math.exp(st.mu[n-1])-1;
+  $('hDate').textContent=`${kst(rows[n-1].t)} · ${iv} 캔들 · 최근 ${(st.W*ivMin/60).toFixed(0)}시간 평소와 비교`;
+  let v,line;
+  if(Math.abs(zl)>=S){v=`<span class="${zl>0?'h':'s'}">${zl>0?'하이닉스':'삼성'}</span>가 비정상적으로 비쌈`;line=`손절 기준(±${S})을 넘었습니다. 관계가 바뀌었을 수 있어 새로 들어가기보다 정리를 검토할 구간입니다.`}
+  else if(zl>=E){v=`<span class="h">하이닉스</span>가 평소보다 비쌈`;line='진입 신호: SKHX 숏 · SMSN 롱 (같은 금액).'}
+  else if(zl<=-E){v=`<span class="s">삼성</span>이 평소보다 비쌈`;line='진입 신호: SMSN 숏 · SKHX 롱 (같은 금액).'}
+  else if(Math.abs(zl)<=X){v='평소 수준';line='갭이 평균 근처입니다. 보유 중이면 청산 구간이고, 새 신호는 없습니다.'}
+  else{v=`평소 범위 안 · <span class="${zl>0?'h':'s'}">${zl>0?'하이닉스':'삼성'}</span> 쪽으로 기움`;line=`진입 기준까지 갭 점수 ${(E-Math.abs(zl)).toFixed(1)} 남았습니다.`}
+  $('hVerdict').innerHTML=v;$('hLine').textContent=line;
+  $('hZ').textContent=(zl>0?'+':'')+zl.toFixed(2);$('hDev').textContent=pct(dev,2);$('hRatio').textContent=ratio.toFixed(4);
+  $('pS').textContent=usd(rows[n-1].s);$('pH').textContent=usd(rows[n-1].h);
+  const G=Math.max(3,E+1),seg=w=>`${w/(2*G)*100}%`;
+  $('gBar').innerHTML=`<span style="width:${seg(G-E)};background:var(--sam);opacity:.55"></span><span style="width:${seg(2*E)};background:var(--grid)"></span><span style="width:${seg(G-E)};background:var(--hyn);opacity:.55"></span>`;
+  $('gMk').style.left=`${(Math.max(-G,Math.min(G,zl))+G)/(2*G)*100}%`;
+  lastRx=reactions(st);drawMain(st,from,lastRx);drawNews(lastRx);drawHover();drawCtx();
+  const bt=backtest(st.z,from),closed=bt.trades.filter(t=>t.out);
+  $('bRet').innerHTML=`<span class="${bt.ret>=0?'pos':'neg'}">${pct(bt.ret)}</span>`;$('bDD').textContent=pct(bt.mdd);
+  $('bN').textContent=`${closed.length} / ${closed.length?Math.round(closed.filter(t=>t.ret>0).length/closed.length*100)+'%':'–'}`;
+  $('trades').innerHTML=bt.trades.length?`<table><thead><tr><th>진입</th><th>청산</th><th>포지션</th><th>수익</th></tr></thead><tbody>${bt.trades.slice().reverse().map(t=>`<tr><td>${kst(t.in)}</td><td>${t.out?kst(t.out):'보유 중'}${t.stop?' (손절)':''}</td><td>${t.dir<0?'SKHX숏 SMSN롱':'SMSN숏 SKHX롱'}</td><td class="${t.ret>=0?'pos':'neg'}">${pct(t.ret,2)}</td></tr>`).join('')}</tbody></table>`:'<p class="hint">이 범위에서는 신호가 없었습니다.</p>';
+}
+function setIv(v){iv=v;store.set('hlgap.iv',v);[...$('ivSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.iv===v))}
+$('ivSeg').addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b||b.dataset.iv===iv)return;setIv(b.dataset.iv);hoverI=null;rows=[];render();loadHistory()});
+['win','entry','exit','stop','fee'].forEach(id=>$(id).addEventListener('change',render));
+$('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];loadHistory()});
+let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150)});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&(!ws||ws.readyState>1))loadHistory()});
+setIv(iv);loadHistory();
+})();
+</script>
+</body>
+</html>
