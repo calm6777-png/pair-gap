@@ -1,0 +1,17 @@
+# Cloudflare Worker로 내보내지 않을 파일(GitHub Pages는 저장소를 그대로 씁니다)
+.git
+.gitignore
+.assetsignore
+.nojekyll
+.claude
+README.md
+node_modules
+usd/.wrangler
+usd/src
+usd/test
+usd/package.json
+usd/package-lock.json
+usd/tsconfig.json
+usd/tsconfig.app.json
+usd/wrangler.jsonc
+usd/README.md

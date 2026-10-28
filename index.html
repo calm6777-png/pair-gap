@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>삼성·하이닉스 실시간 갭</title>
+<script>try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="tabs.css">
+<script src="tabs.js" defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
@@ -19,17 +22,26 @@
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#111316; --panel:#1a1d21; --line:#2c3138; --grid:#23272d;
   --fg:#eff1f4; --fg2:#b9c0c9; --muted:#8a929d;
   --sam:#3987e5; --hyn:#d95926;
   --samzone:rgba(57,135,229,.16); --hynzone:rgba(217,89,38,.17);
   --pin:#9085e9; --pinzone:rgba(144,133,233,.14);
   --good:#3fbf7f; --crit:#ec6a60; --warn:#e0a63a; color-scheme:dark}}
+/* 탭의 ◐ 버튼으로 고른 어두운 화면 */
+:root[data-theme="dark"]{
+  --bg:#111316; --panel:#1a1d21; --line:#2c3138; --grid:#23272d;
+  --fg:#eff1f4; --fg2:#b9c0c9; --muted:#8a929d;
+  --sam:#3987e5; --hyn:#d95926;
+  --samzone:rgba(57,135,229,.16); --hynzone:rgba(217,89,38,.17);
+  --pin:#9085e9; --pinzone:rgba(144,133,233,.14);
+  --good:#3fbf7f; --crit:#ec6a60; --warn:#e0a63a; color-scheme:dark}
 *{box-sizing:border-box}
-html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+/* 위쪽 노치 여백은 맨 위 탭이 맡습니다 */
+html{padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
-.wrap{max-width:720px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+.wrap{max-width:720px;margin:0 auto;padding-block:14px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
 [hidden]{display:none!important}
 h1{font-size:19px;font-weight:700;margin:0}
 h2{font-size:16px;font-weight:700;margin:0}
@@ -112,9 +124,16 @@ th{color:var(--muted);font-weight:500} td:first-child,th:first-child{text-align:
 </style>
 </head>
 <body>
+<nav class="tabs" aria-label="페이지 전환">
+  <div class="tabs-seg">
+    <a href="./" aria-current="page">삼성·하이닉스 갭</a>
+    <a href="usd/">달러선물 전망</a>
+  </div>
+  <button type="button" class="tabs-theme" aria-label="밝은/어두운 화면 전환" title="밝은/어두운 화면 전환">◐</button>
+</nav>
 <div class="wrap">
   <div class="top">
-    <h1>삼성 · 하이닉스 실시간 갭</h1>
+    <h1 class="sr-only">삼성 · 하이닉스 실시간 갭</h1>
     <span class="conn wait" id="conn"><span class="dot"></span><span id="connTxt">연결 중</span></span>
   </div>
   <div class="alert" id="alert" hidden></div>
