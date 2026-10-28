@@ -79,6 +79,15 @@ h2{font-size:16px;font-weight:700;margin:0}
 .readout{font-size:13px;color:var(--fg2);min-height:22px;display:flex;gap:4px 14px;flex-wrap:wrap}
 .readout .num{color:var(--fg)}
 svg{display:block;width:100%;height:auto;touch-action:pan-y}
+/* 차트 확대·이동: 세로 스크롤은 페이지에 맡기고, 가로 끌기·두 손가락 확대는 차트가 받습니다 */
+#chart{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}
+#chart:active{cursor:grabbing}
+.ctrl{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap}
+.vinfo{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.zbtns{display:flex;gap:6px;margin-left:auto}
+.zb{min-width:40px;height:36px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);font-size:18px;line-height:1;cursor:pointer}
+.zb.wide{font-size:13px;font-weight:500}
+.zb:disabled{opacity:.4;cursor:default}
 svg text{fill:var(--muted);font-family:var(--mono);font-size:11px}
 svg text.zl{font-family:var(--sans);font-size:12px;fill:var(--fg2)}
 svg text.pn{fill:#fff;font-size:11px;font-family:var(--mono)}
@@ -166,7 +175,15 @@ th{color:var(--muted);font-weight:500} td:first-child,th:first-child{text-align:
     </div>
     <div class="readout" id="readout"></div>
     <div id="chart"></div>
-    <p class="how">위쪽 주황 구역은 하이닉스가 평소보다 비싼 구간, 아래쪽 파란 구역은 삼성이 비싼 구간입니다. 보라색 번호는 뉴스예요. 차트를 터치하면 그 시점 값이 보입니다.</p>
+    <div class="ctrl">
+      <span class="vinfo" id="vinfo"></span>
+      <span class="zbtns">
+        <button type="button" class="zb" id="zOut" aria-label="축소(더 넓게 보기)" title="축소">−</button>
+        <button type="button" class="zb" id="zIn" aria-label="확대(더 자세히 보기)" title="확대">+</button>
+        <button type="button" class="zb wide" id="zReset" title="처음 보기로">최신으로</button>
+      </span>
+    </div>
+    <p class="how">두 손가락으로 벌리면 확대, 옆으로 끌면 지난 구간이 보입니다(PC는 마우스 휠·끌기, 더블클릭하면 처음 보기). 차트를 누르면 그 시점 값이 위에 나옵니다. 주황 구역은 하이닉스가, 파란 구역은 삼성이 평소보다 비싼 구간이고 보라색 번호는 뉴스예요.</p>
 
     <div class="chead" style="margin-top:14px">
       <h2 style="font-size:15px">뉴스 뒤 갭이 어떻게 움직였나</h2>
@@ -338,44 +355,111 @@ function backtest(z,from){
 /* ---------- chart ---------- */
 function ticks(lo,hi,c){const sp=hi-lo||1,s0=sp/c,mag=10**Math.floor(Math.log10(s0)),st=[1,2,2.5,5,10].map(m=>m*mag).find(s=>s>=s0);const t=[];for(let v=Math.ceil(lo/st)*st;v<=hi+1e-9;v+=st)t.push(+v.toFixed(8));return t}
 let main=null;
-function drawMain(st,from,rx){
-  const el=$('chart'),Wd=Math.max(320,el.clientWidth||640),H=Wd<480?280:300,L=34,R=12,T=34,B=24;
-  const E=+$('entry').value||2,n=rows.length,N=n-from;
-  const zs=[];for(let i=from;i<n;i++)if(st.z[i]!=null)zs.push(st.z[i]);
+// a~b 번째 캔들만 그립니다(확대·이동한 보기 구간). 세로 범위는 보이는 구간에 맞춰 다시 잡습니다.
+function drawMain(st,a,b,rx){
+  const el=$('chart'),Wd=Math.max(320,el.clientWidth||640),H=Wd<480?300:320,L=34,R=12,T=34,B=24;
+  const E=+$('entry').value||2,n=rows.length,N=b-a+1;
+  const zs=[];for(let i=a;i<=b;i++)if(st.z[i]!=null)zs.push(st.z[i]);
   let lo=Math.floor(Math.min(-E-1,...zs)*2)/2,hi=Math.ceil(Math.max(E+1,...zs)*2)/2;
-  const x=i=>L+((i-from)/Math.max(1,N-1))*(Wd-L-R),y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+  const x=i=>L+((i-a)/Math.max(1,N-1))*(Wd-L-R),y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+  const inView=i=>i>=a&&i<=b;
   let s=`<svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="갭 점수 추이와 뉴스">`;
   s+=`<rect x="${L}" y="${T}" width="${Wd-L-R}" height="${y(E)-T}" fill="var(--hynzone)"/><rect x="${L}" y="${y(-E)}" width="${Wd-L-R}" height="${H-B-y(-E)}" fill="var(--samzone)"/>`;
   s+=`<text class="zl" x="${L+6}" y="${T+15}">하이닉스 비쌈</text><text class="zl" x="${L+6}" y="${H-B-6}">삼성 비쌈</text>`;
   ticks(lo,hi,4).forEach(t=>{s+=`<line x1="${L}" x2="${Wd-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end">${t>0?'+':''}${t}</text>`});
   s+=`<line x1="${L}" x2="${Wd-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="3 3"/>`;
-  [from,from+Math.floor((N-1)/2),n-1].forEach((i,j)=>{s+=`<text x="${x(i)}" y="${H-6}" text-anchor="${['start','middle','end'][j]}">${kst(rows[i].t)}</text>`});
+  [a,a+Math.floor((N-1)/2),b].forEach((i,j)=>{s+=`<text x="${x(i)}" y="${H-6}" text-anchor="${['start','middle','end'][j]}">${kst(rows[i].t)}</text>`});
   const sr=rx.find(r=>r.id===sel);
-  if(sr&&!sr.out&&sr.e>=from){const last=sr.steps.length?Math.min(n-1,idxAtOrBefore(sr.t+[15*60e3,3600e3,4*3600e3,24*3600e3].filter(d=>d>=IV[iv]).at(-1))):sr.e;const a=x(Math.max(from,sr.e-1)),b=x(last);s+=`<rect x="${a}" y="${T}" width="${Math.max(3,b-a)}" height="${H-T-B}" fill="var(--pinzone)"/>`}
-  rx.forEach(r=>{if(r.out||r.e<from)return;const X=x(r.e);s+=`<line x1="${X}" x2="${X}" y1="${T-6}" y2="${H-B}" stroke="var(--pin)" stroke-width="${r.id===sel?2:1.25}" ${r.id===sel?'':'stroke-dasharray="3 3"'}/>`});
-  let d='',pen=false;for(let i=from;i<n;i++){const v=st.z[i];if(v==null){pen=false;continue}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1);pen=true}
+  if(sr&&!sr.out){const last=sr.steps.length?Math.min(n-1,idxAtOrBefore(sr.t+[15*60e3,3600e3,4*3600e3,24*3600e3].filter(d=>d>=IV[iv]).at(-1))):sr.e;
+    const i0=Math.max(a,sr.e-1),i1=Math.min(b,last);if(i0<=i1){const x0=x(i0),x1=x(i1);s+=`<rect x="${x0}" y="${T}" width="${Math.max(3,x1-x0)}" height="${H-T-B}" fill="var(--pinzone)"/>`}}
+  rx.forEach(r=>{if(r.out||!inView(r.e))return;const X=x(r.e);s+=`<line x1="${X}" x2="${X}" y1="${T-6}" y2="${H-B}" stroke="var(--pin)" stroke-width="${r.id===sel?2:1.25}" ${r.id===sel?'':'stroke-dasharray="3 3"'}/>`});
+  let d='',pen=false;for(let i=a;i<=b;i++){const v=st.z[i];if(v==null){pen=false;continue}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1);pen=true}
   s+=`<path d="${d}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-  const zl=st.z[n-1];if(zl!=null)s+=`<circle cx="${x(n-1)}" cy="${y(zl)}" r="5" fill="${zl>=E?'var(--hyn)':zl<=-E?'var(--sam)':'var(--fg)'}" stroke="var(--panel)" stroke-width="2"/>`;
-  let lastX=-99;rx.forEach(r=>{if(r.out||r.e<from)return;const X=x(r.e),py=X-lastX<22?4:16;lastX=X;
+  const zl=st.z[n-1];if(b===n-1&&zl!=null)s+=`<circle cx="${x(n-1)}" cy="${y(zl)}" r="5" fill="${zl>=E?'var(--hyn)':zl<=-E?'var(--sam)':'var(--fg)'}" stroke="var(--panel)" stroke-width="2"/>`;
+  let lastX=-99;rx.forEach(r=>{if(r.out||!inView(r.e))return;const X=x(r.e),py=X-lastX<22?4:16;lastX=X;
     s+=`<g class="pin" data-id="${r.id}" style="cursor:pointer"><circle cx="${X}" cy="${py+8}" r="${r.id===sel?11:10}" fill="var(--pin)" stroke="var(--panel)" stroke-width="2"/><text class="pn" x="${X}" y="${py+12}" text-anchor="middle">${r.no}</text><circle cx="${X}" cy="${py+8}" r="18" fill="transparent"/></g>`});
-  s+=`<line class="xh" y1="${T}" y2="${H-B}" stroke="var(--fg2)" visibility="hidden"/><circle class="hd" r="5" fill="var(--fg)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>`;
-  s+=`<rect class="hit" x="${L}" y="${T}" width="${Wd-L-R}" height="${H-T-B}" fill="transparent"/></svg>`;
+  s+=`<line class="xh" y1="${T}" y2="${H-B}" stroke="var(--fg2)" visibility="hidden"/><circle class="hd" r="5" fill="var(--fg)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/></svg>`;
   el.innerHTML=s;
-  const svg=el.querySelector('svg');main={svg,x,y,from,n,st};
-  const toI=ev=>{const r=svg.getBoundingClientRect(),px=(ev.clientX-r.left)*(Wd/r.width);return Math.max(from,Math.min(n-1,from+Math.round((px-L)/(Wd-L-R)*(N-1))))};
-  const hit=svg.querySelector('.hit');
-  hit.addEventListener('pointermove',ev=>{hoverI=toI(ev);drawHover()});hit.addEventListener('pointerdown',ev=>{hoverI=toI(ev);drawHover()});
-  svg.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse'){hoverI=null;drawHover()}});
-  svg.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',()=>selectNews(p.dataset.id,true)));
+  const svg=el.querySelector('svg');main={svg,x,y,a,b,n,st,Wd,L,R};
+  // 끌어서 옮긴 직후의 손 뗌은 뉴스 선택으로 치지 않습니다.
+  svg.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',()=>{if(!dragged)selectNews(p.dataset.id,true)}));
 }
 function drawHover(){
-  if(!main)return;const {svg,x,y,st,n}=main;const xh=svg.querySelector('.xh'),hd=svg.querySelector('.hd');
+  if(!main)return;const {svg,x,y,st,n,a,b}=main;const xh=svg.querySelector('.xh'),hd=svg.querySelector('.hd');
   const i=hoverI??n-1;
-  if(hoverI!=null&&st.z[i]!=null){xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');hd.setAttribute('cx',x(i));hd.setAttribute('cy',y(st.z[i]));hd.setAttribute('visibility','visible')}
+  if(hoverI!=null&&hoverI>=a&&hoverI<=b&&st.z[i]!=null){xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');hd.setAttribute('cx',x(i));hd.setAttribute('cy',y(st.z[i]));hd.setAttribute('visibility','visible')}
   else{xh.setAttribute('visibility','hidden');hd.setAttribute('visibility','hidden')}
   const r=rows[i],zz=st.z[i];
   $('readout').innerHTML=`<span class="num">${kst(r.t)}</span><span>갭 점수 <span class="num">${zz==null?'–':(zz>0?'+':'')+zz.toFixed(2)}</span></span><span>삼성 <span class="num">${usd(r.s)}</span></span><span>하이닉스 <span class="num">${usd(r.h)}</span></span>`;
 }
+
+/* ---------- 차트 확대·이동 ---------- */
+// span: 화면에 보일 캔들 수(0이면 폭에 맞춘 기본값), end: 오른쪽 끝이 최신에서 몇 개 앞인지(0 = 최신 따라감)
+// rightT: 지난 구간을 보는 중일 때 오른쪽 끝 캔들 시각. 새 캔들이 들어와도 보던 화면이 밀리지 않게 붙잡습니다.
+const MIN_SPAN=20;
+let view={span:0,end:0,rightT:null},lastDraw=null,dragged=false,raf=0;
+function loadSpan(){view={span:+store.get('hlgap.span.'+iv)||0,end:0,rightT:null}}
+function saveSpan(){store.set('hlgap.span.'+iv,String(view.span||0))}
+function viewRange(from,n){
+  const total=n-from,def=Math.round(Math.max(320,$('chart').clientWidth||640)/3);
+  const span=Math.min(total,Math.max(Math.min(MIN_SPAN,total),Math.round(view.span||def)));
+  view.end=Math.max(0,Math.min(Math.round(view.end),total-span));
+  const b=n-1-view.end;return {a:b-span+1,b,span,total};
+}
+function drawChart(){
+  if(!lastDraw)return;const {st,from,rx}=lastDraw,n=rows.length,v=viewRange(from,n);
+  drawMain(st,v.a,v.b,rx);view.rightT=view.end>0?rows[v.b].t:null;
+  $('vinfo').textContent=`${kst(rows[v.a].t)} ~ ${kst(rows[v.b].t)} · ${v.span}개`;
+  $('zIn').disabled=v.span<=Math.min(MIN_SPAN,v.total);$('zOut').disabled=v.span>=v.total;
+  $('zReset').disabled=!view.span&&!view.end;
+}
+function scheduleChart(){if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawChart();drawHover()})}
+// frac: 화면 가로 위치(0~1). 그 위치의 캔들이 제자리에 있도록 확대·축소합니다.
+function zoomTo(span,anchorIdx,frac){
+  const n=rows.length,total=n-lastDraw.from;
+  const ns=Math.round(Math.min(total,Math.max(Math.min(MIN_SPAN,total),span)));
+  const na=Math.round(anchorIdx-frac*(ns-1));
+  view.span=ns;view.end=n-1-(na+ns-1);view.rightT=null;
+}
+function zoomBy(factor,frac){
+  if(!lastDraw)return;const v=viewRange(lastDraw.from,rows.length);
+  zoomTo(v.span*factor,v.a+frac*(v.span-1),frac);saveSpan();drawChart();drawHover();
+}
+function fracAt(clientX){const {svg,Wd,L,R}=main,r=svg.getBoundingClientRect();return Math.max(0,Math.min(1,((clientX-r.left)*(Wd/r.width)-L)/(Wd-L-R)))}
+function idxAt(clientX){const {a,b}=main;return Math.max(a,Math.min(b,a+Math.round(fracAt(clientX)*(b-a))))}
+(function(){
+  const box=$('chart'),pts=new Map();let g=null;
+  const capture=id=>{try{box.setPointerCapture(id)}catch(e){}};
+  box.addEventListener('pointerdown',ev=>{
+    if(!main||!lastDraw)return;pts.set(ev.pointerId,ev.clientX);
+    const v=viewRange(lastDraw.from,rows.length);
+    if(pts.size===1){dragged=false;g={type:'tap',x0:ev.clientX,end0:view.end,span:v.span};if(!ev.target.closest('.pin')){hoverI=idxAt(ev.clientX);drawHover()}}
+    else if(pts.size===2){const [p,q]=[...pts.values()],f=fracAt((p+q)/2);g={type:'pinch',d0:Math.max(20,Math.abs(p-q)),span0:v.span,f,anchor:v.a+f*(v.span-1)};dragged=true;hoverI=null;capture(ev.pointerId)}
+  });
+  box.addEventListener('pointermove',ev=>{
+    if(!main||!lastDraw)return;
+    if(!pts.has(ev.pointerId)){if(ev.pointerType==='mouse'){hoverI=idxAt(ev.clientX);drawHover()}return}
+    pts.set(ev.pointerId,ev.clientX);if(!g)return;
+    if(g.type==='pinch'&&pts.size>=2){const [p,q]=[...pts.values()];zoomTo(g.span0*g.d0/Math.max(20,Math.abs(p-q)),g.anchor,g.f);scheduleChart();return}
+    const dx=ev.clientX-g.x0;
+    if(g.type==='tap'&&Math.abs(dx)>6){g.type='pan';dragged=true;hoverI=null;capture(ev.pointerId)}
+    if(g.type==='pan'){const r=main.svg.getBoundingClientRect(),plot=(main.Wd-main.L-main.R)*(r.width/main.Wd);view.end=g.end0+Math.round(dx*g.span/plot);view.rightT=null;scheduleChart()}
+    else{hoverI=idxAt(ev.clientX);drawHover()}
+  });
+  const up=ev=>{
+    pts.delete(ev.pointerId);
+    if(!pts.size){if(g&&g.type==='pinch')saveSpan();g=null}
+    else if(g&&g.type==='pinch'){const x=[...pts.values()][0];saveSpan();g={type:'pan',x0:x,end0:view.end,span:viewRange(lastDraw.from,rows.length).span}}
+  };
+  box.addEventListener('pointerup',up);box.addEventListener('pointercancel',up);
+  box.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse'&&!pts.size){hoverI=null;drawHover()}});
+  box.addEventListener('wheel',ev=>{if(!main||!lastDraw)return;ev.preventDefault();zoomBy(ev.deltaY>0?1.2:1/1.2,fracAt(ev.clientX))},{passive:false});
+  box.addEventListener('dblclick',()=>{view={span:0,end:0,rightT:null};saveSpan();drawChart();drawHover()});
+  // 버튼: 최신을 보고 있으면 오른쪽 끝을, 지난 구간이면 가운데를 기준으로 확대·축소
+  $('zIn').addEventListener('click',()=>zoomBy(1/1.5,view.end?0.5:1));
+  $('zOut').addEventListener('click',()=>zoomBy(1.5,view.end?0.5:1));
+  $('zReset').addEventListener('click',()=>{view={span:0,end:0,rightT:null};saveSpan();drawChart();drawHover()});
+})();
 
 /* ---------- news ---------- */
 function saveNews(){store.set('hlgap.news',JSON.stringify(news))}
@@ -391,7 +475,11 @@ function drawNews(rx){
   box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{news=news.filter(n=>n.id!==b.dataset.del);if(sel===b.dataset.del)sel=null;saveNews();render()}));
 }
 let lastRx=[];
-function selectNews(id,fromChart){sel=sel===id?null:id;const r=lastRx.find(x=>x.id===id);if(sel&&r&&!r.out)hoverI=r.e;render();
+function selectNews(id,fromChart){sel=sel===id?null:id;const r=lastRx.find(x=>x.id===id);
+  if(sel&&r&&!r.out){hoverI=r.e;
+    // 화면 밖 뉴스를 고르면 그 뉴스가 가운데 오도록 옮깁니다.
+    if(lastDraw){const v=viewRange(lastDraw.from,rows.length);if(r.e<v.a||r.e>v.b){view.end=Math.max(0,rows.length-1-(r.e+Math.floor(v.span/2)));view.rightT=null}}}
+  render();
   if(fromChart){const el=document.querySelector(`.nitem[data-id="${id}"]`);el&&el.scrollIntoView({block:'nearest',behavior:'smooth'})}}
 function addNews(t,title){const id='n'+Date.now().toString(36);news.push({id,t,title});news.sort((a,b)=>a.t-b.t);saveNews();sel=id;render()}
 $('bNow').addEventListener('click',()=>{$('newsForm').hidden=false;$('bNewNews').hidden=true;
@@ -407,7 +495,7 @@ $('newsForm').addEventListener('submit',ev=>{ev.preventDefault();const ti=$('nTi
 
 /* ---------- render ---------- */
 function render(){
-  if(rows.length<30){$('chart').innerHTML='<p class="empty">캔들을 기다리는 중입니다.</p>';return}
+  if(rows.length<30){main=null;lastDraw=null;$('chart').innerHTML='<p class="empty">캔들을 기다리는 중입니다.</p>';$('vinfo').textContent='';return}
   const st=compute(),n=rows.length,E=+$('entry').value||2,X=+$('exit').value,S=+$('stop').value||99;
   const from=Math.min(n-10,st.W-1);
   const ivMin=IV[iv]/60e3;$('winHint').textContent=`지금 설정은 최근 ${st.W}개 캔들 ≈ ${(st.W*ivMin/60).toFixed(1)}시간을 ‘평소’로 봅니다.`;
@@ -425,16 +513,19 @@ function render(){
   const G=Math.max(3,E+1),seg=w=>`${w/(2*G)*100}%`;
   $('gBar').innerHTML=`<span style="width:${seg(G-E)};background:var(--sam);opacity:.55"></span><span style="width:${seg(2*E)};background:var(--grid)"></span><span style="width:${seg(G-E)};background:var(--hyn);opacity:.55"></span>`;
   $('gMk').style.left=`${(Math.max(-G,Math.min(G,zl))+G)/(2*G)*100}%`;
-  lastRx=reactions(st);drawMain(st,from,lastRx);drawNews(lastRx);drawHover();drawCtx();
+  lastRx=reactions(st);
+  // 지난 구간을 보는 중이면 새 캔들이 들어와도 같은 구간을 그대로 보여 줍니다.
+  if(view.rightT!=null){const k=idxAtOrBefore(view.rightT);if(k>=0)view.end=n-1-k}
+  lastDraw={st,from,rx:lastRx};drawChart();drawNews(lastRx);drawHover();drawCtx();
   const bt=backtest(st.z,from),closed=bt.trades.filter(t=>t.out);
   $('bRet').innerHTML=`<span class="${bt.ret>=0?'pos':'neg'}">${pct(bt.ret)}</span>`;$('bDD').textContent=pct(bt.mdd);
   $('bN').textContent=`${closed.length} / ${closed.length?Math.round(closed.filter(t=>t.ret>0).length/closed.length*100)+'%':'–'}`;
   $('trades').innerHTML=bt.trades.length?`<table><thead><tr><th>진입</th><th>청산</th><th>포지션</th><th>수익</th></tr></thead><tbody>${bt.trades.slice().reverse().map(t=>`<tr><td>${kst(t.in)}</td><td>${t.out?kst(t.out):'보유 중'}${t.stop?' (손절)':''}</td><td>${t.dir<0?'SKHX숏 SMSN롱':'SMSN숏 SKHX롱'}</td><td class="${t.ret>=0?'pos':'neg'}">${pct(t.ret,2)}</td></tr>`).join('')}</tbody></table>`:'<p class="hint">이 범위에서는 신호가 없었습니다.</p>';
 }
-function setIv(v){iv=v;store.set('hlgap.iv',v);[...$('ivSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.iv===v))}
+function setIv(v){iv=v;store.set('hlgap.iv',v);loadSpan();[...$('ivSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.iv===v))}
 $('ivSeg').addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b||b.dataset.iv===iv)return;setIv(b.dataset.iv);hoverI=null;rows=[];render();loadHistory()});
 ['win','entry','exit','stop','fee'].forEach(id=>$(id).addEventListener('change',render));
-$('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];loadHistory()});
+$('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];view.end=0;view.rightT=null;loadHistory()});
 let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150)});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&(!ws||ws.readyState>1))loadHistory()});
 setIv(iv);loadHistory();
