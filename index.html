@@ -83,7 +83,8 @@ svg{display:block;width:100%;height:auto;touch-action:pan-y}
 #chart{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}
 #chart:active{cursor:grabbing}
 .ctrl{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap}
-.vinfo{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.vinfo{font-size:12px;color:var(--muted);font-family:var(--mono);flex-basis:100%}
+.ctrl .seg button{height:34px;padding:0 12px}
 .zbtns{display:flex;gap:6px;margin-left:auto}
 .zb{min-width:40px;height:36px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);font-size:18px;line-height:1;cursor:pointer}
 .zb.wide{font-size:13px;font-weight:500}
@@ -176,14 +177,17 @@ th{color:var(--muted);font-weight:500} td:first-child,th:first-child{text-align:
     <div class="readout" id="readout"></div>
     <div id="chart"></div>
     <div class="ctrl">
-      <span class="vinfo" id="vinfo"></span>
+      <div class="seg" role="group" aria-label="차트 모양" id="tySeg">
+        <button type="button" data-ty="candle">캔들</button><button type="button" data-ty="line">선</button>
+      </div>
       <span class="zbtns">
         <button type="button" class="zb" id="zOut" aria-label="축소(더 넓게 보기)" title="축소">−</button>
         <button type="button" class="zb" id="zIn" aria-label="확대(더 자세히 보기)" title="확대">+</button>
         <button type="button" class="zb wide" id="zReset" title="처음 보기로">최신으로</button>
       </span>
+      <span class="vinfo" id="vinfo"></span>
     </div>
-    <p class="how">두 손가락으로 벌리면 확대, 옆으로 끌면 지난 구간이 보입니다(PC는 마우스 휠·끌기, 더블클릭하면 처음 보기). 차트를 누르면 그 시점 값이 위에 나옵니다. 주황 구역은 하이닉스가, 파란 구역은 삼성이 평소보다 비싼 구간이고 보라색 번호는 뉴스예요.</p>
+    <p class="how">두 손가락으로 벌리면 확대, 옆으로 끌면 지난 구간이 보입니다(PC는 마우스 휠·끌기, 더블클릭하면 처음 보기). 차트를 누르면 그 시점 값이 위에 나옵니다. 주황 구역은 하이닉스가, 파란 구역은 삼성이 평소보다 비싼 구간이고 보라색 번호는 뉴스예요. 주황 캔들은 그 사이 하이닉스가 더 오른 것(갭 점수 상승), 파랑 캔들은 삼성이 더 오른 것입니다. 꼬리(고가·저가)는 두 종목이 같은 때 고점·저점을 찍었다고 보고 추정한 값입니다.</p>
 
     <div class="chead" style="margin-top:14px">
       <h2 style="font-size:15px">뉴스 뒤 갭이 어떻게 움직였나</h2>
@@ -241,15 +245,16 @@ const API='https://api.hyperliquid.xyz/info', WSS='wss://api.hyperliquid.xyz/ws'
 const IV={ '1m':60e3,'5m':300e3,'15m':900e3,'1h':3600e3,'4h':14400e3 };
 const $=id=>document.getElementById(id);
 const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
-const kst=(t,withDate=true)=>new Date(t).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,...(withDate?{month:'2-digit',day:'2-digit'}:{}),hour:'2-digit',minute:'2-digit'});
+// "10. 27. 21:15" → "10.27 21:15" (좁은 차트 축에 세 개가 들어가도록)
+const kst=(t,withDate=true)=>new Date(t).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,...(withDate?{month:'2-digit',day:'2-digit'}:{}),hour:'2-digit',minute:'2-digit'}).replace(/(\d+)\. (\d+)\. /,'$1.$2 ');
 const pct=(v,d=1)=>(v>=0?'+':'')+(v*100).toFixed(d)+'%';
 const usd=v=>'$'+(v>=100?v.toFixed(2):v.toFixed(3));
 
 let iv=store.get('hlgap.iv')||'15m';
 let coinS=store.get('hlgap.cS')||'xyz:SMSN', coinH=store.get('hlgap.cH')||'xyz:SKHX';
 $('cS').value=coinS;$('cH').value=coinH;
-let cS=new Map(), cH=new Map();   // t -> {t,c}
-let rows=[];                      // merged {t,T,s,h}
+let cS=new Map(), cH=new Map();   // t -> {t,T,o,h,l,c}
+let rows=[];                      // merged {t,T,s,h,S,H}: s·h는 종가, S·H는 각 종목 캔들
 let news=[];try{news=JSON.parse(store.get('hlgap.news')||'[]')}catch(e){}
 let sel=null,hoverI=null,ws=null,lastMsg=0,ctx={};
 
@@ -264,7 +269,7 @@ async function loadHistory(){
   try{
     const [a,b]=await Promise.all([coinS,coinH].map(c=>post({type:'candleSnapshot',req:{coin:c,interval:iv,startTime:start,endTime:end}})));
     if(!Array.isArray(a)||!a.length||!Array.isArray(b)||!b.length)throw new Error('empty');
-    cS=new Map(a.map(k=>[k.t,{t:k.t,T:k.T,c:+k.c}]));cH=new Map(b.map(k=>[k.t,{t:k.t,T:k.T,c:+k.c}]));
+    cS=new Map(a.map(k=>[k.t,ohlc(k)]));cH=new Map(b.map(k=>[k.t,ohlc(k)]));
     remerge();render();openWS();loadCtx();
   }catch(e){
     setConn('bad','연결 안 됨');
@@ -273,8 +278,9 @@ async function loadHistory(){
       :`하이퍼리퀴드 서버에 접속하지 못했습니다 (${e.message}). 이 파일을 claude.ai 앱 안에서 열었다면 외부 접속이 막혀 있으니, 크롬·사파리 같은 일반 브라우저에서 열어 주세요.`);
   }
 }
+function ohlc(k){return {t:k.t,T:k.T,o:+k.o,h:+k.h,l:+k.l,c:+k.c}}
 function remerge(){
-  const out=[];for(const [t,s] of cS){const h=cH.get(t);if(h)out.push({t,T:s.T,s:s.c,h:h.c})}
+  const out=[];for(const [t,s] of cS){const h=cH.get(t);if(h)out.push({t,T:s.T,s:s.c,h:h.c,S:s,H:h})}
   out.sort((x,y)=>x.t-y.t);rows=out.slice(-1200);
 }
 async function loadCtx(){
@@ -300,7 +306,7 @@ function openWS(){
   sock.onmessage=ev=>{let m;try{m=JSON.parse(ev.data)}catch(e){return}
     if(m.channel!=='candle'||!m.data)return;const k=m.data;lastMsg=Date.now();
     const same=c=>k.s===c||String(k.s).toLowerCase()===c.toLowerCase()||c.endsWith(':'+k.s);const map=same(coinS)?cS:same(coinH)?cH:null;if(!map||k.i!==iv)return;
-    map.set(k.t,{t:k.t,T:k.T,c:+k.c});
+    map.set(k.t,ohlc(k));
     if(!renderQ){renderQ=true;setTimeout(()=>{renderQ=false;remerge();render()},800)}};
   sock.onclose=()=>{if(ws!==sock)return;setConn('wait','재연결 중');setTimeout(()=>{if(ws===sock)openWS()},3000)};
   sock.onerror=()=>{};
@@ -314,9 +320,16 @@ function showAlert(m){$('alert').textContent=m;$('alert').hidden=!m}
 /* ---------- math ---------- */
 function compute(){
   const W=Math.max(20,Math.min(1000,parseInt($('win').value)||96)),n=rows.length;
-  const lr=rows.map(r=>Math.log(r.h/r.s)),z=Array(n).fill(null),mu=Array(n).fill(null);
-  for(let i=W-1;i<n;i++){let m=0;for(let k=i-W+1;k<=i;k++)m+=lr[k];m/=W;let v=0;for(let k=i-W+1;k<=i;k++)v+=(lr[k]-m)**2;v=Math.sqrt(v/(W-1));mu[i]=m;z[i]=v>0?(lr[i]-m)/v:0}
-  return {W,z,mu,lr};
+  const lr=rows.map(r=>Math.log(r.h/r.s)),z=Array(n).fill(null),mu=Array(n).fill(null),sd=Array(n).fill(null);
+  for(let i=W-1;i<n;i++){let m=0;for(let k=i-W+1;k<=i;k++)m+=lr[k];m/=W;let v=0;for(let k=i-W+1;k<=i;k++)v+=(lr[k]-m)**2;v=Math.sqrt(v/(W-1));mu[i]=m;sd[i]=v;z[i]=v>0?(lr[i]-m)/v:0}
+  return {W,z,mu,sd,lr};
+}
+// 갭 점수 캔들. 시가·종가는 두 종목의 시가·종가로 정확히 구합니다.
+// 고가·저가는 캔들 안의 움직임을 알 수 없어, 두 종목이 같은 때 고점·저점을 찍었다고 보고 추정합니다.
+function gapCandle(st,i){
+  const r=rows[i],m=st.mu[i],v=st.sd[i];if(m==null||!(v>0))return null;
+  const f=(h,s)=>(Math.log(h/s)-m)/v,o=f(r.H.o,r.S.o),c=st.z[i],p=f(r.H.h,r.S.h),q=f(r.H.l,r.S.l);
+  return {o,c,hi:Math.max(o,c,p,q),lo:Math.min(o,c,p,q)};
 }
 function idxAtOrBefore(t){let lo=0,hi=rows.length-1,a=-1;while(lo<=hi){const m=(lo+hi)>>1;if(rows[m].t<=t){a=m;lo=m+1}else hi=m-1}return a}
 function reactions(st){
@@ -358,10 +371,12 @@ let main=null;
 // a~b 번째 캔들만 그립니다(확대·이동한 보기 구간). 세로 범위는 보이는 구간에 맞춰 다시 잡습니다.
 function drawMain(st,a,b,rx){
   const el=$('chart'),Wd=Math.max(320,el.clientWidth||640),H=Wd<480?300:320,L=34,R=12,T=34,B=24;
-  const E=+$('entry').value||2,n=rows.length,N=b-a+1;
-  const zs=[];for(let i=a;i<=b;i++)if(st.z[i]!=null)zs.push(st.z[i]);
+  const E=+$('entry').value||2,n=rows.length,N=b-a+1,PW=Wd-L-R,candle=chartType==='candle';
+  const cs=candle?Array.from({length:N},(_,j)=>gapCandle(st,a+j)):null;
+  const zs=[];for(let i=a;i<=b;i++){if(candle){const k=cs[i-a];if(k)zs.push(k.hi,k.lo)}else if(st.z[i]!=null)zs.push(st.z[i])}
   let lo=Math.floor(Math.min(-E-1,...zs)*2)/2,hi=Math.ceil(Math.max(E+1,...zs)*2)/2;
-  const x=i=>L+((i-a)/Math.max(1,N-1))*(Wd-L-R),y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+  // 캔들마다 같은 폭의 칸을 주고 그 가운데에 찍습니다(양 끝 캔들 몸통이 잘리지 않게).
+  const x=i=>L+(i-a+.5)*PW/N,y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
   const inView=i=>i>=a&&i<=b;
   let s=`<svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="갭 점수 추이와 뉴스">`;
   s+=`<rect x="${L}" y="${T}" width="${Wd-L-R}" height="${y(E)-T}" fill="var(--hynzone)"/><rect x="${L}" y="${y(-E)}" width="${Wd-L-R}" height="${H-B-y(-E)}" fill="var(--samzone)"/>`;
@@ -373,24 +388,34 @@ function drawMain(st,a,b,rx){
   if(sr&&!sr.out){const last=sr.steps.length?Math.min(n-1,idxAtOrBefore(sr.t+[15*60e3,3600e3,4*3600e3,24*3600e3].filter(d=>d>=IV[iv]).at(-1))):sr.e;
     const i0=Math.max(a,sr.e-1),i1=Math.min(b,last);if(i0<=i1){const x0=x(i0),x1=x(i1);s+=`<rect x="${x0}" y="${T}" width="${Math.max(3,x1-x0)}" height="${H-T-B}" fill="var(--pinzone)"/>`}}
   rx.forEach(r=>{if(r.out||!inView(r.e))return;const X=x(r.e);s+=`<line x1="${X}" x2="${X}" y1="${T-6}" y2="${H-B}" stroke="var(--pin)" stroke-width="${r.id===sel?2:1.25}" ${r.id===sel?'':'stroke-dasharray="3 3"'}/>`});
-  let d='',pen=false;for(let i=a;i<=b;i++){const v=st.z[i];if(v==null){pen=false;continue}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1);pen=true}
-  s+=`<path d="${d}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-  const zl=st.z[n-1];if(b===n-1&&zl!=null)s+=`<circle cx="${x(n-1)}" cy="${y(zl)}" r="5" fill="${zl>=E?'var(--hyn)':zl<=-E?'var(--sam)':'var(--fg)'}" stroke="var(--panel)" stroke-width="2"/>`;
+  if(candle){
+    // 오른 캔들·내린 캔들을 색별로 꼬리 경로 하나, 몸통 경로 하나로 묶어 그립니다(끌 때 가볍게).
+    const bw=Math.max(1,Math.min(12,PW/N*.7));let wu='',wd='',bu='',bd='';
+    cs.forEach((k,j)=>{if(!k)return;const X=x(a+j),top=y(Math.max(k.o,k.c)),h=Math.max(1,y(Math.min(k.o,k.c))-top);
+      const w=`M${X.toFixed(1)},${y(k.hi).toFixed(1)}V${y(k.lo).toFixed(1)}`,r=`M${(X-bw/2).toFixed(1)},${top.toFixed(1)}h${bw.toFixed(1)}v${h.toFixed(1)}h${(-bw).toFixed(1)}z`;
+      if(k.c>=k.o){wu+=w;bu+=r}else{wd+=w;bd+=r}});
+    s+=`<path d="${wu}" fill="none" stroke="var(--hyn)"/><path d="${wd}" fill="none" stroke="var(--sam)"/><path d="${bu}" fill="var(--hyn)"/><path d="${bd}" fill="var(--sam)"/>`;
+  }else{
+    let d='',pen=false;for(let i=a;i<=b;i++){const v=st.z[i];if(v==null){pen=false;continue}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1);pen=true}
+    s+=`<path d="${d}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const zl=st.z[n-1];if(b===n-1&&zl!=null)s+=`<circle cx="${x(n-1)}" cy="${y(zl)}" r="5" fill="${zl>=E?'var(--hyn)':zl<=-E?'var(--sam)':'var(--fg)'}" stroke="var(--panel)" stroke-width="2"/>`;
+  }
   let lastX=-99;rx.forEach(r=>{if(r.out||!inView(r.e))return;const X=x(r.e),py=X-lastX<22?4:16;lastX=X;
     s+=`<g class="pin" data-id="${r.id}" style="cursor:pointer"><circle cx="${X}" cy="${py+8}" r="${r.id===sel?11:10}" fill="var(--pin)" stroke="var(--panel)" stroke-width="2"/><text class="pn" x="${X}" y="${py+12}" text-anchor="middle">${r.no}</text><circle cx="${X}" cy="${py+8}" r="18" fill="transparent"/></g>`});
   s+=`<line class="xh" y1="${T}" y2="${H-B}" stroke="var(--fg2)" visibility="hidden"/><circle class="hd" r="5" fill="var(--fg)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/></svg>`;
   el.innerHTML=s;
-  const svg=el.querySelector('svg');main={svg,x,y,a,b,n,st,Wd,L,R};
+  const svg=el.querySelector('svg');main={svg,x,y,a,b,n,st,Wd,L,R,candle};
   // 끌어서 옮긴 직후의 손 뗌은 뉴스 선택으로 치지 않습니다.
   svg.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',()=>{if(!dragged)selectNews(p.dataset.id,true)}));
 }
 function drawHover(){
-  if(!main)return;const {svg,x,y,st,n,a,b}=main;const xh=svg.querySelector('.xh'),hd=svg.querySelector('.hd');
+  if(!main)return;const {svg,x,y,st,n,a,b,candle}=main;const xh=svg.querySelector('.xh'),hd=svg.querySelector('.hd');
   const i=hoverI??n-1;
-  if(hoverI!=null&&hoverI>=a&&hoverI<=b&&st.z[i]!=null){xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');hd.setAttribute('cx',x(i));hd.setAttribute('cy',y(st.z[i]));hd.setAttribute('visibility','visible')}
+  if(hoverI!=null&&hoverI>=a&&hoverI<=b&&st.z[i]!=null){xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');hd.setAttribute('cx',x(i));hd.setAttribute('cy',y(st.z[i]));hd.setAttribute('visibility',candle?'hidden':'visible')}
   else{xh.setAttribute('visibility','hidden');hd.setAttribute('visibility','hidden')}
-  const r=rows[i],zz=st.z[i];
-  $('readout').innerHTML=`<span class="num">${kst(r.t)}</span><span>갭 점수 <span class="num">${zz==null?'–':(zz>0?'+':'')+zz.toFixed(2)}</span></span><span>삼성 <span class="num">${usd(r.s)}</span></span><span>하이닉스 <span class="num">${usd(r.h)}</span></span>`;
+  const r=rows[i],zz=st.z[i],k=candle?gapCandle(st,i):null,sg=v=>(v>0?'+':'')+v.toFixed(2);
+  const zTxt=k?`시 <span class="num">${sg(k.o)}</span> 고 <span class="num">${sg(k.hi)}</span> 저 <span class="num">${sg(k.lo)}</span> 종 <span class="num">${sg(k.c)}</span>`:`<span class="num">${zz==null?'–':sg(zz)}</span>`;
+  $('readout').innerHTML=`<span class="num">${kst(r.t)}</span><span>갭 점수 ${zTxt}</span><span>삼성 <span class="num">${usd(r.s)}</span></span><span>하이닉스 <span class="num">${usd(r.h)}</span></span>`;
 }
 
 /* ---------- 차트 확대·이동 ---------- */
@@ -398,10 +423,13 @@ function drawHover(){
 // rightT: 지난 구간을 보는 중일 때 오른쪽 끝 캔들 시각. 새 캔들이 들어와도 보던 화면이 밀리지 않게 붙잡습니다.
 const MIN_SPAN=20;
 let view={span:0,end:0,rightT:null},lastDraw=null,dragged=false,raf=0;
+let chartType=store.get('hlgap.type')==='line'?'line':'candle';
+function setType(v){chartType=v;store.set('hlgap.type',v);[...$('tySeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.ty===v))}
 function loadSpan(){view={span:+store.get('hlgap.span.'+iv)||0,end:0,rightT:null}}
 function saveSpan(){store.set('hlgap.span.'+iv,String(view.span||0))}
 function viewRange(from,n){
-  const total=n-from,def=Math.round(Math.max(320,$('chart').clientWidth||640)/3);
+  // 기본 보기: 캔들은 몸통이 보이도록 선보다 적게 담습니다.
+  const total=n-from,def=Math.round(Math.max(320,$('chart').clientWidth||640)/(chartType==='candle'?5:3));
   const span=Math.min(total,Math.max(Math.min(MIN_SPAN,total),Math.round(view.span||def)));
   view.end=Math.max(0,Math.min(Math.round(view.end),total-span));
   const b=n-1-view.end;return {a:b-span+1,b,span,total};
@@ -418,15 +446,15 @@ function scheduleChart(){if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawChart(
 function zoomTo(span,anchorIdx,frac){
   const n=rows.length,total=n-lastDraw.from;
   const ns=Math.round(Math.min(total,Math.max(Math.min(MIN_SPAN,total),span)));
-  const na=Math.round(anchorIdx-frac*(ns-1));
+  const na=Math.round(anchorIdx+.5-frac*ns);
   view.span=ns;view.end=n-1-(na+ns-1);view.rightT=null;
 }
 function zoomBy(factor,frac){
   if(!lastDraw)return;const v=viewRange(lastDraw.from,rows.length);
-  zoomTo(v.span*factor,v.a+frac*(v.span-1),frac);saveSpan();drawChart();drawHover();
+  zoomTo(v.span*factor,v.a+frac*v.span-.5,frac);saveSpan();drawChart();drawHover();
 }
 function fracAt(clientX){const {svg,Wd,L,R}=main,r=svg.getBoundingClientRect();return Math.max(0,Math.min(1,((clientX-r.left)*(Wd/r.width)-L)/(Wd-L-R)))}
-function idxAt(clientX){const {a,b}=main;return Math.max(a,Math.min(b,a+Math.round(fracAt(clientX)*(b-a))))}
+function idxAt(clientX){const {a,b}=main;return Math.min(b,a+Math.floor(fracAt(clientX)*(b-a+1)))}
 (function(){
   const box=$('chart'),pts=new Map();let g=null;
   const capture=id=>{try{box.setPointerCapture(id)}catch(e){}};
@@ -434,7 +462,7 @@ function idxAt(clientX){const {a,b}=main;return Math.max(a,Math.min(b,a+Math.rou
     if(!main||!lastDraw)return;pts.set(ev.pointerId,ev.clientX);
     const v=viewRange(lastDraw.from,rows.length);
     if(pts.size===1){dragged=false;g={type:'tap',x0:ev.clientX,end0:view.end,span:v.span};if(!ev.target.closest('.pin')){hoverI=idxAt(ev.clientX);drawHover()}}
-    else if(pts.size===2){const [p,q]=[...pts.values()],f=fracAt((p+q)/2);g={type:'pinch',d0:Math.max(20,Math.abs(p-q)),span0:v.span,f,anchor:v.a+f*(v.span-1)};dragged=true;hoverI=null;capture(ev.pointerId)}
+    else if(pts.size===2){const [p,q]=[...pts.values()],f=fracAt((p+q)/2);g={type:'pinch',d0:Math.max(20,Math.abs(p-q)),span0:v.span,f,anchor:v.a+f*v.span-.5};dragged=true;hoverI=null;capture(ev.pointerId)}
   });
   box.addEventListener('pointermove',ev=>{
     if(!main||!lastDraw)return;
@@ -459,6 +487,7 @@ function idxAt(clientX){const {a,b}=main;return Math.max(a,Math.min(b,a+Math.rou
   $('zIn').addEventListener('click',()=>zoomBy(1/1.5,view.end?0.5:1));
   $('zOut').addEventListener('click',()=>zoomBy(1.5,view.end?0.5:1));
   $('zReset').addEventListener('click',()=>{view={span:0,end:0,rightT:null};saveSpan();drawChart();drawHover()});
+  $('tySeg').addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b||b.dataset.ty===chartType)return;setType(b.dataset.ty);drawChart();drawHover()});
 })();
 
 /* ---------- news ---------- */
@@ -528,7 +557,7 @@ $('ivSeg').addEventListener('click',ev=>{const b=ev.target.closest('button');if(
 $('bReload').addEventListener('click',()=>{coinS=$('cS').value.trim();coinH=$('cH').value.trim();store.set('hlgap.cS',coinS);store.set('hlgap.cH',coinH);rows=[];view.end=0;view.rightT=null;loadHistory()});
 let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150)});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&(!ws||ws.readyState>1))loadHistory()});
-setIv(iv);loadHistory();
+setIv(iv);setType(chartType);loadHistory();
 })();
 </script>
 </body>
